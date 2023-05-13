@@ -98,7 +98,7 @@ fn run(opt: Opt) -> Result<i32> {
             subtitle_file
                 .write_all(&subtitle_data)
                 .context(WriteSrtSnafu {
-                    filename: output.clone(),
+                    filename: output,
                 })?;
         }
         None => {
