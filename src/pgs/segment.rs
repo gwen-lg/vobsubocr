@@ -1,11 +1,9 @@
 use std::{
     convert::{TryFrom, TryInto},
-    fmt,
-    fs::File,
-    io::Read,
+    fmt::{self, Debug},
 };
 
-use super::{BufferMngr, CompositionState, Error};
+use super::{BufferMngr, CompositionState, Error, WindowInformationObject};
 use crate::pgs::{read_window_info, u24::u24};
 
 const MAGIC_NUMBER: [u8; 2] = [0x50, 0x47];
@@ -67,6 +65,9 @@ impl SegmentHeader {
     pub fn sg_type(&self) -> SegmentType {
         self.seg_type
     }
+    pub fn size(&self) -> u16 {
+        self.size
+    }
 }
 impl fmt::Display for SegmentHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -80,7 +81,7 @@ impl fmt::Display for SegmentHeader {
         )
     }
 }
-pub fn read_header<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<SegmentHeader, Error> {
+pub fn read_header(buffer: &mut BufferMngr) -> Result<SegmentHeader, Error> {
     const HEADER_LEN: usize = 2 + 4 + 4 + 1 + 2;
     let header_buf = buffer.take_slice(HEADER_LEN);
 
@@ -111,11 +112,9 @@ pub struct PresentationCompositionSegment {
     // 0x00: Normal | 0x40: Acquisition Point | 0x80: Epoch Start
     palette_update_flag: u8, //	Indicates if this PCS describes a Palette only Display Update. Allowed values are: 0x00: False | 0x80: True
     palette_id: u8,          // ID of the palette to be used in the Palette only Display Update
-    number_of_composition_objects: u8, // Number of composition objects defined in this segment
+    composition_objects: Vec<WindowInformationObject>, // Number of composition objects defined in this segment
 }
-pub fn read_pcs<'a>(
-    buffer: &'a mut BufferMngr<'a>,
-) -> Result<PresentationCompositionSegment, Error> {
+pub fn read_pcs(buffer: &mut BufferMngr) -> Result<PresentationCompositionSegment, Error> {
     const PCS_LEN: usize = 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1; //size_of::<Pcs>();
     let pcs_buf = buffer.take_slice(PCS_LEN);
 
@@ -136,9 +135,9 @@ pub fn read_pcs<'a>(
     }
     let palette_id = pcs_buf[9];
     let number_of_composition_objects = pcs_buf[10];
-    for object_idx in 0..number_of_composition_objects {
-        let win_info = read_window_info(buffer)?;
-    }
+    let range = 0..number_of_composition_objects;
+    let composition_objects: Result<Vec<_>, _> = range.map(|_| read_window_info(buffer)).collect();
+    let composition_objects = composition_objects?;
 
     Ok(PresentationCompositionSegment {
         width,
@@ -148,7 +147,7 @@ pub fn read_pcs<'a>(
         composition_state,
         palette_update_flag,
         palette_id,
-        number_of_composition_objects,
+        composition_objects,
     })
 }
 
@@ -162,8 +161,8 @@ pub struct WindowDefinitionSegment {
     window_height: u16,
 }
 
-pub fn read_wds<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<WindowDefinitionSegment, Error> {
-    const WDS_LEN: usize = 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1; //size_of::<Pcs>();
+pub fn read_wds(buffer: &mut BufferMngr) -> Result<WindowDefinitionSegment, Error> {
+    const WDS_LEN: usize = 1 + 1 + 2 + 2 + 2 + 2; //size_of::<WindowDefinitionSegment>();
     let wds_buf = buffer.take_slice(WDS_LEN);
 
     let number_of_windows = wds_buf[0];
@@ -183,63 +182,118 @@ pub fn read_wds<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<WindowDefinitionSe
 }
 
 #[derive(Debug)]
+pub struct PaletteEntry {
+    palette_entry_id: u8,      // Entry number of the palette
+    luminance: u8,             // Luminance (Y value)
+    color_difference_red: u8,  // Color Difference Red (Cr value)
+    color_difference_blue: u8, // Color Difference Blue (Cb value)
+    transparency: u8,          // Transparency (Alpha value)
+}
+#[derive(Debug)]
 pub struct PaletteDefinitionSegment {
     palette_id: u8,             // ID of the palette
     palette_version_number: u8, //	Version of this palette within the Epoch
-    palette_entry_id: u8,       // Entry number of the palette
-    luminance: u8,              // Luminance (Y value)
-    color_difference_red: u8,   // Color Difference Red (Cr value)
-    color_difference_blue: u8,  // Color Difference Blue (Cb value)
-    transparency: u8,           // Transparency (Alpha value)
+    palette_entries: Vec<PaletteEntry>,
 }
 
-pub fn read_pds<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<PaletteDefinitionSegment, Error> {
-    const PDS_LEN: usize = 7; //size_of::<PaletteDefinitionSegment>();
-    let pds_buf = buffer.take_slice(PDS_LEN);
+pub fn read_pds(
+    buffer: &mut BufferMngr,
+    segments_size: usize,
+) -> Result<PaletteDefinitionSegment, Error> {
+    //const PDS_LEN: usize = 7; //size_of::<PaletteDefinitionSegment>();
+    let pds_buf = buffer.take_slice(segments_size.into());
     let palette_id = pds_buf[0];
     let palette_version_number = pds_buf[1];
 
-    //TODO: can be most than one entry
-    let palette_entry_id = pds_buf[2];
-    let luminance = pds_buf[3];
-    let color_difference_red = pds_buf[4];
-    let color_difference_blue = pds_buf[5];
-    let transparency = pds_buf[6];
+    let nb_palette_entry: usize = (segments_size - 2) / 5;
+    assert_eq!((nb_palette_entry * 5) + 2, segments_size);
+    let range = 0..nb_palette_entry;
+    let palette_entries = range
+        .map(|idx| {
+            let offset = 2 + (idx * 5);
+            PaletteEntry {
+                palette_entry_id: pds_buf[offset],
+                luminance: pds_buf[offset + 1],
+                color_difference_red: pds_buf[offset + 2],
+                color_difference_blue: pds_buf[offset + 3],
+                transparency: pds_buf[offset + 4],
+            }
+        })
+        .collect();
     Ok(PaletteDefinitionSegment {
         palette_id,
         palette_version_number,
-        palette_entry_id,
-        luminance,
-        color_difference_red,
-        color_difference_blue,
-        transparency,
+        palette_entries,
     })
 }
 
-#[derive(Debug)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+enum LastInSequenceFlag {
+    LastInSequence = 0x40,
+    FirstInSequence = 0x80,
+    FirstAndLastInSequence = 0xC0,
+}
+impl TryFrom<u8> for LastInSequenceFlag {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x40 => Ok(LastInSequenceFlag::LastInSequence),
+            0x80 => Ok(LastInSequenceFlag::FirstInSequence),
+            0xC0 => Ok(LastInSequenceFlag::FirstAndLastInSequence),
+            _ => Err(Error::String {
+                value: "LastInSequenceFlag parsing error".into(),
+            }),
+        }
+    }
+}
+
 pub struct ObjectDefinitionSegment {
     object_id: u16,
     object_version_number: u8,
-    last_in_sequence_flag: u8,
+    last_in_sequence_flag: LastInSequenceFlag,
     object_data_lenght: u24,
     width: u16,
     height: u16,
     object_data: Vec<u8>, // ????
 }
+impl Debug for ObjectDefinitionSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let object_id = self.object_id;
+        let object_version_number = self.object_version_number;
+        let last_in_sequence_flag = self.last_in_sequence_flag;
+        let object_data_lenght = self.object_data_lenght;
+        let width = self.width;
+        let height = self.height;
+        let object_data_len = self.object_data.len();
+        write!(
+            f,
+            "ObjectDefinitionSegment {{ object_id: {object_id}, \
+        object_version_number: {object_version_number}, \
+        last_in_sequence_flag: {last_in_sequence_flag:?}, \
+        object_data_lenght: {object_data_lenght:?}, \
+        width: {width}, \
+        height: {height}, \
+        object_data: [_;{object_data_len}] }}"
+        )
+    }
+}
 
-pub fn read_ods<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<ObjectDefinitionSegment, Error> {
+pub fn read_ods(
+    buffer: &mut BufferMngr,
+    segments_size: usize,
+) -> Result<ObjectDefinitionSegment, Error> {
     const ODS_HEADER: usize = 2 + 1 + 1 + 3 + 2 + 2; //size_of::<PaletteDefinitionSegment>();
     let ods_buf = buffer.take_slice(ODS_HEADER);
     let object_id = u16::from_be_bytes(ods_buf[0..2].try_into().unwrap());
     let object_version_number = ods_buf[2];
-    let last_in_sequence_flag = ods_buf[3];
+    let last_in_sequence_flag = ods_buf[3].try_into()?;
+
     let object_data_lenght =
         u24::from(<&[u8] as TryInto<[u8; 3]>>::try_into(&ods_buf[4..7]).unwrap());
     let width = u16::from_be_bytes(ods_buf[7..9].try_into().unwrap());
     let height = u16::from_be_bytes(ods_buf[9..11].try_into().unwrap());
-    //object_data: Vec<u8>, // ????
-    //ods_buf.drop();
-    //let mut object_data = Vec::new();
     let data_size: usize = object_data_lenght.to_u32().try_into().unwrap();
     //object_data.resize(data_size, 0);
     //let read_count = file.read(object_data.as_mut_slice())?;
