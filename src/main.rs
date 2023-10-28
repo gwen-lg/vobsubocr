@@ -2,6 +2,7 @@
 
 mod ocr;
 mod opt;
+mod pgs;
 mod preprocessor;
 
 use crate::opt::Opt;
@@ -40,11 +41,24 @@ enum Error {
         filename: String,
         source: image::ImageError,
     },
+
+    #[snafu(display("Could not read SUP file {}: {}", filename.display(), source))]
+    ParseSup {
+        filename: PathBuf,
+        source: pgs::Error,
+    },
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 fn run(opt: Opt) -> Result<i32> {
+    let is_sup = { if let Some(ext) = opt.input.extension() {
+        ext == "sup"
+    } else { false } };
+    if is_sup {
+        pgs::run(&opt).context(ParseSupSnafu {filename: opt.input.clone(),})?;
+    }
+
     let vobsubs = preprocessor::preprocess_subtitles(&opt).context(ReadSubtitlesSnafu {
         filename: opt.input.clone(),
     })?;
