@@ -5,7 +5,7 @@ use std::{
     io::Read,
 };
 
-use super::{CompositionState, Error};
+use super::{BufferMngr, CompositionState, Error};
 use crate::pgs::{read_window_info, u24::u24};
 
 const MAGIC_NUMBER: [u8; 2] = [0x50, 0x47];
@@ -80,24 +80,19 @@ impl fmt::Display for SegmentHeader {
         )
     }
 }
-pub fn read_header(file: &mut File) -> Result<SegmentHeader, Error> {
+pub fn read_header<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<SegmentHeader, Error> {
     const HEADER_LEN: usize = 2 + 4 + 4 + 1 + 2;
-    let mut buffer = [0u8; HEADER_LEN];
+    let header_buf = buffer.take_slice(HEADER_LEN);
 
-    let read_count = file.read(&mut buffer)?;
-    if read_count < HEADER_LEN {
-        return Err(Error::EndOfFile);
+    //buffer = buf_next;
+    if header_buf[0..2] != MAGIC_NUMBER {
+        return Err(String::from("Unable to read segment header - MAGIC_NUMBER missing!").into());
     }
-    //    let magic_number: [u8; 2]; = [buffer[0..1], ;
-    if buffer[0..2] != MAGIC_NUMBER {
-        return Err(String::from("Unable to read segment - PG missing!").into());
-    }
-    let pts = u32::from_be_bytes(buffer[2..6].try_into().unwrap());
-    let dts = u32::from_be_bytes(buffer[6..10].try_into().unwrap());
-    let seg_type = SegmentType::try_from(buffer[10])?;
-    let size = u16::from_be_bytes(buffer[11..13].try_into().unwrap());
+    let pts = u32::from_be_bytes(header_buf[2..6].try_into().unwrap());
+    let dts = u32::from_be_bytes(header_buf[6..10].try_into().unwrap());
+    let seg_type = SegmentType::try_from(header_buf[10])?;
+    let size = u16::from_be_bytes(header_buf[11..13].try_into().unwrap());
 
-    //do_something(&buffer[..read_count]);
     Ok(SegmentHeader {
         pts,
         dts,
@@ -118,34 +113,31 @@ pub struct PresentationCompositionSegment {
     palette_id: u8,          // ID of the palette to be used in the Palette only Display Update
     number_of_composition_objects: u8, // Number of composition objects defined in this segment
 }
-pub fn read_pcs(file: &mut File) -> Result<PresentationCompositionSegment, Error> {
-    //println!("Presentation Composition Segment");
+pub fn read_pcs<'a>(
+    buffer: &'a mut BufferMngr<'a>,
+) -> Result<PresentationCompositionSegment, Error> {
     const PCS_LEN: usize = 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1; //size_of::<Pcs>();
-    let mut buffer = [0u8; PCS_LEN];
-    let read_count = file.read(&mut buffer)?;
-    if read_count < PCS_LEN {
-        return Err(String::from("Can't read all pc segment").into());
-    }
+    let pcs_buf = buffer.take_slice(PCS_LEN);
 
-    let width = u16::from_be_bytes(buffer[0..2].try_into().unwrap());
-    let height = u16::from_be_bytes(buffer[2..4].try_into().unwrap());
-    let frame_rate = buffer[4];
+    let width = u16::from_be_bytes(pcs_buf[0..2].try_into().unwrap());
+    let height = u16::from_be_bytes(pcs_buf[2..4].try_into().unwrap());
+    let frame_rate = pcs_buf[4];
     assert!(frame_rate == 0x10);
-    let composition_number = u16::from_be_bytes(buffer[5..7].try_into().unwrap());
-    let composition_state = buffer[7].try_into()?;
+    let composition_number = u16::from_be_bytes(pcs_buf[5..7].try_into().unwrap());
+    let composition_state = pcs_buf[7].try_into()?;
     // if composition_state != 0x00 && composition_state != 0x40 && composition_state != 0x80 {
     //     // 0x00: Normal | 0x40: Acquisition Point | 0x80: Epoch Start
     //     return Err(String::from("TODO composition_state").into());
     // }
-    let palette_update_flag = buffer[8];
+    let palette_update_flag = pcs_buf[8];
     if palette_update_flag != 0x00 && palette_update_flag != 0x80 {
         //	Indicates if this PCS describes a Palette only Display Update. Allowed values are: 0x00: False | 0x80: True
         return Err(String::from("TODO palette_update_flag").into());
     }
-    let palette_id = buffer[9];
-    let number_of_composition_objects = buffer[10];
+    let palette_id = pcs_buf[9];
+    let number_of_composition_objects = pcs_buf[10];
     for object_idx in 0..number_of_composition_objects {
-        let win_info = read_window_info(file)?;
+        let win_info = read_window_info(buffer)?;
     }
 
     Ok(PresentationCompositionSegment {
@@ -170,20 +162,16 @@ pub struct WindowDefinitionSegment {
     window_height: u16,
 }
 
-pub fn read_wds(file: &mut File) -> Result<WindowDefinitionSegment, Error> {
+pub fn read_wds<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<WindowDefinitionSegment, Error> {
     const WDS_LEN: usize = 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1; //size_of::<Pcs>();
-    let mut buffer = [0u8; WDS_LEN];
-    let read_count = file.read(&mut buffer)?;
-    if read_count < WDS_LEN {
-        return Err(String::from("Can't read all Window Definition Segment").into());
-    }
+    let wds_buf = buffer.take_slice(WDS_LEN);
 
-    let number_of_windows = buffer[0];
-    let window_id = buffer[1];
-    let window_horizontal_position = u16::from_be_bytes(buffer[2..4].try_into().unwrap());
-    let window_vertical_position = u16::from_be_bytes(buffer[4..6].try_into().unwrap());
-    let window_width = u16::from_be_bytes(buffer[6..8].try_into().unwrap());
-    let window_height = u16::from_be_bytes(buffer[8..10].try_into().unwrap());
+    let number_of_windows = wds_buf[0];
+    let window_id = wds_buf[1];
+    let window_horizontal_position = u16::from_be_bytes(wds_buf[2..4].try_into().unwrap());
+    let window_vertical_position = u16::from_be_bytes(wds_buf[4..6].try_into().unwrap());
+    let window_width = u16::from_be_bytes(wds_buf[6..8].try_into().unwrap());
+    let window_height = u16::from_be_bytes(wds_buf[8..10].try_into().unwrap());
     Ok(WindowDefinitionSegment {
         number_of_windows,
         window_id,
@@ -205,22 +193,18 @@ pub struct PaletteDefinitionSegment {
     transparency: u8,           // Transparency (Alpha value)
 }
 
-pub fn read_pds(file: &mut File) -> Result<PaletteDefinitionSegment, Error> {
+pub fn read_pds<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<PaletteDefinitionSegment, Error> {
     const PDS_LEN: usize = 7; //size_of::<PaletteDefinitionSegment>();
-    let mut buffer = [0u8; PDS_LEN];
-    let read_count = file.read(&mut buffer)?;
-    if read_count < PDS_LEN {
-        return Err(String::from("Can't read all Window Definition Segment").into());
-    }
-    let palette_id = buffer[0];
-    let palette_version_number = buffer[1];
+    let pds_buf = buffer.take_slice(PDS_LEN);
+    let palette_id = pds_buf[0];
+    let palette_version_number = pds_buf[1];
 
     //TODO: can be most than one entry
-    let palette_entry_id = buffer[2];
-    let luminance = buffer[3];
-    let color_difference_red = buffer[4];
-    let color_difference_blue = buffer[5];
-    let transparency = buffer[6];
+    let palette_entry_id = pds_buf[2];
+    let luminance = pds_buf[3];
+    let color_difference_red = pds_buf[4];
+    let color_difference_blue = pds_buf[5];
+    let transparency = pds_buf[6];
     Ok(PaletteDefinitionSegment {
         palette_id,
         palette_version_number,
@@ -243,29 +227,26 @@ pub struct ObjectDefinitionSegment {
     object_data: Vec<u8>, // ????
 }
 
-pub fn read_ods(file: &mut File) -> Result<ObjectDefinitionSegment, Error> {
+pub fn read_ods<'a>(buffer: &'a mut BufferMngr<'a>) -> Result<ObjectDefinitionSegment, Error> {
     const ODS_HEADER: usize = 2 + 1 + 1 + 3 + 2 + 2; //size_of::<PaletteDefinitionSegment>();
-    let mut buffer = [0u8; ODS_HEADER];
-    let read_count = file.read(&mut buffer)?;
-    if read_count < ODS_HEADER {
-        return Err(String::from("Can't read all Object Definition Segment").into());
-    }
-    let object_id = u16::from_be_bytes(buffer[0..2].try_into().unwrap());
-    let object_version_number = buffer[2];
-    let last_in_sequence_flag = buffer[3];
+    let ods_buf = buffer.take_slice(ODS_HEADER);
+    let object_id = u16::from_be_bytes(ods_buf[0..2].try_into().unwrap());
+    let object_version_number = ods_buf[2];
+    let last_in_sequence_flag = ods_buf[3];
     let object_data_lenght =
-        u24::from(<&[u8] as TryInto<[u8; 3]>>::try_into(&buffer[4..7]).unwrap());
-    let width = u16::from_be_bytes(buffer[7..9].try_into().unwrap());
-    let height = u16::from_be_bytes(buffer[9..11].try_into().unwrap());
+        u24::from(<&[u8] as TryInto<[u8; 3]>>::try_into(&ods_buf[4..7]).unwrap());
+    let width = u16::from_be_bytes(ods_buf[7..9].try_into().unwrap());
+    let height = u16::from_be_bytes(ods_buf[9..11].try_into().unwrap());
     //object_data: Vec<u8>, // ????
-
-    let mut object_data = Vec::new();
+    //ods_buf.drop();
+    //let mut object_data = Vec::new();
     let data_size: usize = object_data_lenght.to_u32().try_into().unwrap();
-    object_data.resize(data_size, 0);
-    let read_count = file.read(object_data.as_mut_slice())?;
-    if read_count < object_data.len() {
-        return Err(String::from("Can't read all Object Data").into());
-    }
+    //object_data.resize(data_size, 0);
+    //let read_count = file.read(object_data.as_mut_slice())?;
+    // if read_count < object_data.len() {
+    //     return Err(String::from("Can't read all Object Data").into());
+    // }
+    let data_buf = buffer.take_slice(data_size);
 
     Ok(ObjectDefinitionSegment {
         object_id,
@@ -274,6 +255,6 @@ pub fn read_ods(file: &mut File) -> Result<ObjectDefinitionSegment, Error> {
         object_data_lenght,
         width,
         height,
-        object_data,
+        object_data: data_buf.to_vec(),
     })
 }
