@@ -6,7 +6,7 @@ use snafu::Snafu;
 use std::{
     convert::{TryFrom, TryInto},
     fs::File,
-    io::{self, Read},
+    io::{self, BufReader, Read},
 };
 
 use crate::{
@@ -43,62 +43,65 @@ impl From<String> for Error {
     }
 }
 
-const BUFFER_SIZE: usize = 1 * 1024 * 1024;
-pub struct BufferMngr {
-    buffer: [u8; BUFFER_SIZE],
-    buf_cursor: usize,
-    reach_eof: bool,
-}
+//const READ_SIZE: usize = 1024 * 1024;
+const BUFFER_CAPACITY: usize = 1024 * 1024;
 
-impl BufferMngr {
-    pub fn new() -> Self {
-        Self {
-            buffer: [0; BUFFER_SIZE],
-            buf_cursor: 0,
-            reach_eof: false,
-        }
-    }
-    pub fn read_from_file(&mut self, file: &mut File) -> Result<(), std::io::Error> {
-        let read_count = file.read(&mut self.buffer)?;
-        self.reach_eof = read_count < BUFFER_SIZE; //TODO manage
-        self.buf_cursor = 0;
-        Ok(())
-    }
-    pub fn take_slice(&mut self, count: usize) -> &[u8] {
-        let (_, right) = self.buffer.split_at(self.buf_cursor);
-        let (left, _) = right.split_at(count);
-        self.buf_cursor = self.buf_cursor + count;
-        left
-    }
-}
+// pub struct BufferMngr {
+//     buffer: Vec<u8>,
+//     buf_cursor: usize,
+//     //reach_eof: bool,
+// }
+
+// impl BufferMngr {
+//     pub fn new() -> Self {
+//         Self {
+//             buffer: Vec::new(), //with_capacity(BUFFER_SIZE),
+//             buf_cursor: 0,
+//             //reach_eof: false,
+//         }
+//     }
+//     pub fn read_from_file(&mut self, file: &mut File) -> Result<(), std::io::Error> {
+//         let read_count = file.read_to_end(&mut self.buffer)?;
+//         //self.reach_eof = read_count < READ_SIZE; //TODO manage
+//         self.buf_cursor = 0;
+//         Ok(())
+//     }
+//     pub fn take_slice(&mut self, count: usize) -> &[u8] {
+//         let (_, right) = self.buffer.split_at(self.buf_cursor);
+//         let (left, _) = right.split_at(count);
+//         self.buf_cursor = self.buf_cursor + count;
+//         left
+//     }
+// }
 
 pub type Result<T, E = crate::pgs::Error> = std::result::Result<T, E>;
 
 pub fn run(opt: &Opt) -> Result<()> {
-    let mut buf_mngr = BufferMngr::new();
+    //let mut buf_mngr = BufferMngr::new();
     let mut file = File::open(opt.input.clone())?;
-    buf_mngr.read_from_file(&mut file)?;
-    while let Some(segment_header) = Some(read_header(&mut buf_mngr)?) {
+    //buf_mngr.read_from_file(&mut file)?;
+    let mut reader = BufReader::with_capacity(BUFFER_CAPACITY, file);
+    while let Some(segment_header) = Some(read_header(&mut reader)?) {
         println!("Segment : {segment_header}");
         match segment_header.sg_type() {
             SegmentType::Pcs => {
-                let pcs = read_pcs(&mut buf_mngr)?;
+                let pcs = read_pcs(&mut reader)?;
                 println!("PCS: {pcs:?}");
             }
             SegmentType::Wds => {
-                let wds = read_wds(&mut buf_mngr)?;
+                let wds = read_wds(&mut reader)?;
                 println!("WDS: {wds:?}");
             }
             SegmentType::Pds => {
-                let pds = read_pds(&mut buf_mngr, segment_header.size().into())?;
+                let pds = read_pds(&mut reader, segment_header.size().into())?;
                 println!("PDS: {pds:?}");
             }
             SegmentType::Ods => {
-                let ods = read_ods(&mut buf_mngr, segment_header.size().into())?;
+                let ods = read_ods(&mut reader, segment_header.size().into())?;
                 println!("ODS: {ods:?}");
             }
             SegmentType::End => {
-                println!("END: nothing to read");
+                println!("END");
             }
         }
     }
@@ -152,9 +155,13 @@ struct WindowInformationObject {
     object_vertical_position: u16, // Y offset from the top left pixel of the image on the screen
     object_cropping_info: Option<ObjectCroppingInfo>,
 }
-fn read_window_info(buffer: &mut BufferMngr) -> Result<WindowInformationObject, Error> {
+fn read_window_info(reader: &mut BufReader<File>) -> Result<WindowInformationObject, Error> {
     const WIN_INFO_LEN: usize = 2 + 1 + 1 + 2 + 2;
-    let win_info_buf = buffer.take_slice(WIN_INFO_LEN);
+    let mut win_info_buf = [0; WIN_INFO_LEN];
+    let read = reader.read(&mut win_info_buf)?;
+    if read < WIN_INFO_LEN {
+        return Err(String::from("Can't read engouth data").into());
+    }
     let object_id = u16::from_be_bytes(win_info_buf[0..2].try_into().unwrap());
     let window_id = win_info_buf[2];
     let object_cropped_flag = win_info_buf[3];
@@ -167,7 +174,11 @@ fn read_window_info(buffer: &mut BufferMngr) -> Result<WindowInformationObject, 
 
     let object_cropping_info = if object_cropped_flag == 0x40 {
         const CROPPING_INFO_LEN: usize = 2 + 2 + 2 + 2;
-        let cropping_info_buf = buffer.take_slice(CROPPING_INFO_LEN);
+        let mut cropping_info_buf = [0; CROPPING_INFO_LEN];
+        let read = reader.read(&mut cropping_info_buf)?;
+        if read < CROPPING_INFO_LEN {
+            return Err(String::from("Can't read engouth data").into());
+        }
 
         let object_cropping_horizontal_position =
             u16::from_be_bytes(cropping_info_buf[0..2].try_into().unwrap());
