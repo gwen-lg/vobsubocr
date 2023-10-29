@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Add};
+use std::fmt::Debug;
 
 #[derive(Copy, Clone)]
 #[allow(non_camel_case_types)]
@@ -17,7 +17,7 @@ impl u24 {
         u32::from_be_bytes([0, a, b, c])
     }
     pub fn from_u32(n: u32) -> Self {
-        let [a, b, c, d] = n.to_le_bytes();
+        let [d, a, b, c] = n.to_be_bytes();
         debug_assert!(d == 0);
         u24([a, b, c])
     }
