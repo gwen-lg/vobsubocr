@@ -295,11 +295,14 @@ pub fn read_ods(
     let width = u16::from_be_bytes(ods_buf[7..9].try_into().unwrap());
     let height = u16::from_be_bytes(ods_buf[9..11].try_into().unwrap());
     let data_size: usize = object_data_lenght.to_u32().try_into().unwrap();
+    let data_size = data_size - 4; // don't know why for now !!!
+
     //object_data.resize(data_size, 0);
     //let read_count = file.read(object_data.as_mut_slice())?;
     // if read_count < object_data.len() {
     //     return Err(String::from("Can't read all Object Data").into());
     // }
+    assert!(ODS_HEADER + data_size == segments_size);
     let data_buf = buffer.take_slice(data_size);
 
     Ok(ObjectDefinitionSegment {
