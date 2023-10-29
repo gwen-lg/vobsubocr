@@ -18,6 +18,7 @@ use self::segment::read_header;
 
 // https://blog.thescorpius.com/index.php/2017/07/15/presentation-graphic-stream-sup-files-bluray-subtitle-format/
 //TODO: extract info avoir partition with error, and faile operation with collect when error in iterator
+//TODO: check terresac setup : https://github.com/ratoaq2/pgsrip/blob/master/pgsrip/pgs.py#L73
 
 #[derive(Debug, Snafu)]
 pub enum Error {
