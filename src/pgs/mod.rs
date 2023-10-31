@@ -48,66 +48,27 @@ impl From<String> for Error {
     }
 }
 
-//const READ_SIZE: usize = 1024 * 1024;
-
-// pub struct BufferMngr {
-//     buffer: Vec<u8>,
-//     buf_cursor: usize,
-//     //reach_eof: bool,
-// }
-
-// impl BufferMngr {
-//     pub fn new() -> Self {
-//         Self {
-//             buffer: Vec::new(), //with_capacity(BUFFER_SIZE),
-//             buf_cursor: 0,
-//             //reach_eof: false,
-//         }
-//     }
-//     pub fn read_from_file(&mut self, file: &mut File) -> Result<(), std::io::Error> {
-//         let read_count = file.read_to_end(&mut self.buffer)?;
-//         //self.reach_eof = read_count < READ_SIZE; //TODO manage
-//         self.buf_cursor = 0;
-//         Ok(())
-//     }
-//     pub fn take_slice(&mut self, count: usize) -> &[u8] {
-//         let (_, right) = self.buffer.split_at(self.buf_cursor);
-//         let (left, _) = right.split_at(count);
-//         self.buf_cursor = self.buf_cursor + count;
-//         left
-//     }
-// }
-
 pub type Result<T, E = crate::pgs::Error> = std::result::Result<T, E>;
 
 pub fn run(opt: &Opt) -> Result<()> {
-    //let mut buf_mngr = BufferMngr::new();
     let file = File::open(opt.input.clone())?;
-    //buf_mngr.read_from_file(&mut file)?;
-    const BUFFER_CAPACITY: usize = 256 * 1024; // 1024 * 1024
+    const BUFFER_CAPACITY: usize = 1024 * 1024; // 1M
     let mut reader = BufReader::with_capacity(BUFFER_CAPACITY, file);
-    _check_file_read(&mut reader);
-
-    //let mut reader = BufReader::new(file);
+    //  _check_file_read(&mut reader);
+    let file_size = reader.get_ref().metadata().unwrap().len();
 
     let mut segments = Vec::with_capacity(1000);
     let mut segment_count = 0;
-    //let mut previous_cursor = 0;
-    //let half_buffer_capacity = (reader.capacity() / 3).try_into().unwrap();
+    let mut display_set_count = 0;
     // Parse files
-    while let Some(segment_header) = Some(read_header(&mut reader)?)
+    while {
+        let stream_pos = reader.stream_position().unwrap();
+        stream_pos < file_size
+    }
     // .context(ParseHeaderSegmentSnafu)
     {
-        //TODO: BufReader with iterator ?
-        // https://crates.io/crates/buf_redux
-        // RLE : https://github.com/josephg/diamond-types/tree/master/crates/rle / https://crates.io/crates/rle/0.2.0 / https://en.wikipedia.org/wiki/Run-length_encoding
-        // let file_cursor = reader.stream_position()?;
-        // if (file_cursor - previous_cursor) > half_buffer_capacity {
-        //     reader.seek(SeekFrom::Current(0))?; // FILL more data ?
-        //     reader.fill_buf()?;
-        //     //previous_cursor = file_cursor;
-        // }
-        println!("Segment [{segment_count}]: {segment_header}");
+        let segment_header = read_header(&mut reader)?;
+        //println!("Ds[{display_set_count}] - Seg [{segment_count}]: {segment_header}");
         match segment_header.sg_type() {
             SegmentType::Pcs => {
                 let pcs = read_pcs(&mut reader)?;
@@ -126,6 +87,7 @@ pub fn run(opt: &Opt) -> Result<()> {
                 //println!("ODS: {ods:?}");
             }
             SegmentType::End => {
+                display_set_count = display_set_count.add(1);
                 //println!("END");
             }
         }
@@ -134,7 +96,10 @@ pub fn run(opt: &Opt) -> Result<()> {
     }
 
     //
-    println!("segment count : {}", segments.len());
+    println!(
+        "segment count : {}, display set count : {display_set_count}",
+        segments.len()
+    );
     Ok(())
 }
 
@@ -205,10 +170,8 @@ struct WindowInformationObject {
 fn read_window_info(reader: &mut BufReader<File>) -> Result<WindowInformationObject, Error> {
     const WIN_INFO_LEN: usize = 2 + 1 + 1 + 2 + 2;
     let mut win_info_buf = [0; WIN_INFO_LEN];
-    let read = reader.read_exact(&mut win_info_buf)?;
-    // if read < WIN_INFO_LEN {
-    //     return Err(String::from("Can't read engouth data").into());
-    // }
+    reader.read_exact(&mut win_info_buf)?;
+
     let object_id = u16::from_be_bytes(win_info_buf[0..2].try_into().unwrap());
     let window_id = win_info_buf[2];
     let object_cropped_flag = win_info_buf[3];
