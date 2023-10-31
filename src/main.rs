@@ -52,11 +52,17 @@ enum Error {
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 fn run(opt: Opt) -> Result<i32> {
-    let is_sup = { if let Some(ext) = opt.input.extension() {
-        ext == "sup"
-    } else { false } };
+    let is_sup = {
+        if let Some(ext) = opt.input.extension() {
+            ext == "sup"
+        } else {
+            false
+        }
+    };
     if is_sup {
-        pgs::run(&opt).context(ParseSupSnafu {filename: opt.input.clone(),})?;
+        pgs::run(&opt).context(ParseSupSnafu {
+            filename: opt.input.clone(),
+        })?;
     }
 
     let vobsubs = preprocessor::preprocess_subtitles(&opt).context(ReadSubtitlesSnafu {
@@ -133,6 +139,7 @@ fn main() {
         .env()
         .init()
         .unwrap();
+
     let code = match run(Opt::parse()) {
         Ok(rc) => rc,
         Err(e) => {

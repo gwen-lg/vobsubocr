@@ -2,11 +2,12 @@ mod segment;
 mod u24;
 
 use core::fmt;
-use snafu::Snafu;
+use snafu::{ResultExt, Snafu};
 use std::{
     convert::{TryFrom, TryInto},
     fs::File,
-    io::{self, BufReader, Read},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
+    ops::Add,
 };
 
 use crate::{
@@ -19,9 +20,13 @@ use self::segment::read_header;
 // https://blog.thescorpius.com/index.php/2017/07/15/presentation-graphic-stream-sup-files-bluray-subtitle-format/
 //TODO: extract info avoir partition with error, and faile operation with collect when error in iterator
 //TODO: check terresac setup : https://github.com/ratoaq2/pgsrip/blob/master/pgsrip/pgs.py#L73
+// TODO : look at https://crates.io/crates/substudy
 
 #[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("Parse Header Segment"))]
+    ParseHeaderSegment,
+
     #[snafu(display("Could not build tesseract thread pool: {}", source))]
     IoError { source: io::Error },
 
@@ -44,7 +49,6 @@ impl From<String> for Error {
 }
 
 //const READ_SIZE: usize = 1024 * 1024;
-const BUFFER_CAPACITY: usize = 1024 * 1024;
 
 // pub struct BufferMngr {
 //     buffer: Vec<u8>,
@@ -78,34 +82,77 @@ pub type Result<T, E = crate::pgs::Error> = std::result::Result<T, E>;
 
 pub fn run(opt: &Opt) -> Result<()> {
     //let mut buf_mngr = BufferMngr::new();
-    let mut file = File::open(opt.input.clone())?;
+    let file = File::open(opt.input.clone())?;
     //buf_mngr.read_from_file(&mut file)?;
+    const BUFFER_CAPACITY: usize = 256 * 1024; // 1024 * 1024
     let mut reader = BufReader::with_capacity(BUFFER_CAPACITY, file);
-    while let Some(segment_header) = Some(read_header(&mut reader)?) {
-        println!("Segment : {segment_header}");
+    _check_file_read(&mut reader);
+
+    //let mut reader = BufReader::new(file);
+
+    let mut segments = Vec::with_capacity(1000);
+    let mut segment_count = 0;
+    //let mut previous_cursor = 0;
+    //let half_buffer_capacity = (reader.capacity() / 3).try_into().unwrap();
+    // Parse files
+    while let Some(segment_header) = Some(read_header(&mut reader)?)
+    // .context(ParseHeaderSegmentSnafu)
+    {
+        //TODO: BufReader with iterator ?
+        // https://crates.io/crates/buf_redux
+        // RLE : https://github.com/josephg/diamond-types/tree/master/crates/rle / https://crates.io/crates/rle/0.2.0 / https://en.wikipedia.org/wiki/Run-length_encoding
+        // let file_cursor = reader.stream_position()?;
+        // if (file_cursor - previous_cursor) > half_buffer_capacity {
+        //     reader.seek(SeekFrom::Current(0))?; // FILL more data ?
+        //     reader.fill_buf()?;
+        //     //previous_cursor = file_cursor;
+        // }
+        println!("Segment [{segment_count}]: {segment_header}");
         match segment_header.sg_type() {
             SegmentType::Pcs => {
                 let pcs = read_pcs(&mut reader)?;
-                println!("PCS: {pcs:?}");
+                // println!("PCS: {pcs:?}");
             }
             SegmentType::Wds => {
                 let wds = read_wds(&mut reader)?;
-                println!("WDS: {wds:?}");
+                //println!("WDS: {wds:?}");
             }
             SegmentType::Pds => {
                 let pds = read_pds(&mut reader, segment_header.size().into())?;
-                println!("PDS: {pds:?}");
+                //println!("PDS: {pds:?}");
             }
             SegmentType::Ods => {
                 let ods = read_ods(&mut reader, segment_header.size().into())?;
-                println!("ODS: {ods:?}");
+                //println!("ODS: {ods:?}");
             }
             SegmentType::End => {
-                println!("END");
+                //println!("END");
             }
         }
+        segments.push(segment_header);
+        segment_count = segment_count.add(1);
     }
+
+    //
+    println!("segment count : {}", segments.len());
     Ok(())
+}
+
+fn _check_file_read(reader: &mut BufReader<File>) {
+    let mut total_size_read = 0;
+    let mut buf = Vec::new();
+    while let Some(size_read) = reader
+        .read_until(0x50, &mut buf)
+        .ok()
+        .map(|value| if value > 0 { Some(value) } else { None })
+        .unwrap()
+    {
+        assert_eq!(size_read, buf.len());
+        total_size_read = total_size_read + size_read;
+        buf.clear();
+    }
+    println!("File size read : {total_size_read}");
+    reader.seek(SeekFrom::Start(0)).unwrap();
 }
 
 #[repr(u8)]
@@ -158,10 +205,10 @@ struct WindowInformationObject {
 fn read_window_info(reader: &mut BufReader<File>) -> Result<WindowInformationObject, Error> {
     const WIN_INFO_LEN: usize = 2 + 1 + 1 + 2 + 2;
     let mut win_info_buf = [0; WIN_INFO_LEN];
-    let read = reader.read(&mut win_info_buf)?;
-    if read < WIN_INFO_LEN {
-        return Err(String::from("Can't read engouth data").into());
-    }
+    let read = reader.read_exact(&mut win_info_buf)?;
+    // if read < WIN_INFO_LEN {
+    //     return Err(String::from("Can't read engouth data").into());
+    // }
     let object_id = u16::from_be_bytes(win_info_buf[0..2].try_into().unwrap());
     let window_id = win_info_buf[2];
     let object_cropped_flag = win_info_buf[3];
@@ -175,10 +222,10 @@ fn read_window_info(reader: &mut BufReader<File>) -> Result<WindowInformationObj
     let object_cropping_info = if object_cropped_flag == 0x40 {
         const CROPPING_INFO_LEN: usize = 2 + 2 + 2 + 2;
         let mut cropping_info_buf = [0; CROPPING_INFO_LEN];
-        let read = reader.read(&mut cropping_info_buf)?;
-        if read < CROPPING_INFO_LEN {
-            return Err(String::from("Can't read engouth data").into());
-        }
+        reader.read_exact(&mut cropping_info_buf)?;
+        // if read < CROPPING_INFO_LEN {
+        //     return Err(String::from("Can't read engouth data").into());
+        // }
 
         let object_cropping_horizontal_position =
             u16::from_be_bytes(cropping_info_buf[0..2].try_into().unwrap());
@@ -204,4 +251,51 @@ fn read_window_info(reader: &mut BufReader<File>) -> Result<WindowInformationObj
         object_vertical_position,
         object_cropping_info,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{BufReader, Read};
+
+    #[test]
+    fn test_buf_reader() {
+        let data: Vec<u8> = (0..100) // 1MB, more than default buffer size of 8k
+            .map(|x| x as u8)
+            .collect();
+
+        let mut reader = BufReader::with_capacity(20, data.as_slice());
+        loop {
+            let mut buf = [0_u8; 10];
+            match reader.read_exact(&mut buf) {
+                Ok(()) => println!("{buf:?}"),
+                Err(err) => {
+                    println!("Err {err:?} ");
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_buf_reader_file() {
+        {
+            let data: Vec<u8> = (0..1024).map(|x| x as u8).collect();
+
+            std::fs::write("/tmp/testfile.bin", &data).unwrap();
+        }
+        {
+            let file = std::fs::File::open("/tmp/testfile.bin").unwrap();
+            let mut reader = BufReader::with_capacity(35, file);
+            loop {
+                let mut buf = [0_u8; 35];
+                match reader.read_exact(&mut buf) {
+                    Ok(()) => println!("{buf:?}"),
+                    Err(err) => {
+                        println!("Err {err:?} ");
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }

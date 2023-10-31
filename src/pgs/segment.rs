@@ -2,7 +2,7 @@ use std::{
     convert::{TryFrom, TryInto},
     fmt::{self, Debug},
     fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
 };
 
 use super::{CompositionState, Error, WindowInformationObject};
@@ -86,14 +86,23 @@ impl fmt::Display for SegmentHeader {
 pub fn read_header(reader: &mut BufReader<File>) -> Result<SegmentHeader, Error> {
     const HEADER_LEN: usize = 2 + 4 + 4 + 1 + 2;
     let mut header_buf = [0; HEADER_LEN];
-    let read = reader.read(&mut header_buf)?;
-    if read < HEADER_LEN {
-        return Err(String::from("Can't read engouth data").into());
-    }
+    match reader.read_exact(&mut header_buf) {
+        Ok(()) => (),
+        Err(err) => {
+            println!("Error : {err}");
+        }
+    };
+    // if read < HEADER_LEN {
+    //     return Err(String::from("Can't read engouth data").into());
+    // }
 
     //buffer = buf_next;
     if header_buf[0..2] != MAGIC_NUMBER {
-        return Err(String::from("Unable to read segment header - MAGIC_NUMBER missing!").into());
+        let file_idx = reader.stream_position().unwrap();
+        let msg = format!(
+            "Unable to read segment header - MAGIC_NUMBER missing! Stream pos : {file_idx}"
+        );
+        return Err(msg.into());
     }
     let pts = u32::from_be_bytes(header_buf[2..6].try_into().unwrap());
     let dts = u32::from_be_bytes(header_buf[6..10].try_into().unwrap());
@@ -123,10 +132,10 @@ pub struct PresentationCompositionSegment {
 pub fn read_pcs(reader: &mut BufReader<File>) -> Result<PresentationCompositionSegment, Error> {
     const PCS_LEN: usize = 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1; //size_of::<Pcs>();
     let mut pcs_buf = [0; PCS_LEN];
-    let read = reader.read(&mut pcs_buf)?;
-    if read < PCS_LEN {
-        return Err(String::from("Can't read engouth data").into());
-    }
+    let read = reader.read_exact(&mut pcs_buf)?;
+    // if read < PCS_LEN {
+    //     return Err(String::from("Can't read engouth data").into());
+    // }
 
     let width = u16::from_be_bytes(pcs_buf[0..2].try_into().unwrap());
     let height = u16::from_be_bytes(pcs_buf[2..4].try_into().unwrap());
@@ -174,10 +183,10 @@ pub struct WindowDefinitionSegment {
 pub fn read_wds(reader: &mut BufReader<File>) -> Result<WindowDefinitionSegment, Error> {
     const WDS_LEN: usize = 1 + 1 + 2 + 2 + 2 + 2; //size_of::<WindowDefinitionSegment>();
     let mut wds_buf = [0; WDS_LEN];
-    let read = reader.read(&mut wds_buf)?;
-    if read < WDS_LEN {
-        return Err(String::from("Can't read engouth data").into());
-    }
+    let read = reader.read_exact(&mut wds_buf)?;
+    // if read < WDS_LEN {
+    //     return Err(String::from("Can't read engouth data").into());
+    // }
 
     let number_of_windows = wds_buf[0];
     let window_id = wds_buf[1];
@@ -216,10 +225,10 @@ pub fn read_pds(
 ) -> Result<PaletteDefinitionSegment, Error> {
     //const PDS_LEN: usize = 7; //size_of::<PaletteDefinitionSegment>();
     let mut pds_buf = vec![0; segments_size.into()];
-    let read = reader.read(&mut pds_buf)?;
-    if read < segments_size.into() {
-        return Err(String::from("Can't read engouth data").into());
-    }
+    let read = reader.read_exact(&mut pds_buf)?;
+    // if read < segments_size.into() {
+    //     return Err(String::from("Can't read engouth data").into());
+    // }
 
     let palette_id = pds_buf[0];
     let palette_version_number = pds_buf[1];
@@ -308,10 +317,10 @@ pub fn read_ods(
 ) -> Result<ObjectDefinitionSegment, Error> {
     const ODS_HEADER: usize = 2 + 1 + 1 + 3 + 2 + 2; //size_of::<PaletteDefinitionSegment>();
     let mut ods_buf = [0; ODS_HEADER];
-    let read = reader.read(&mut ods_buf)?;
-    if read < ODS_HEADER {
-        return Err(String::from("Can't read engouth data").into());
-    }
+    let read = reader.read_exact(&mut ods_buf)?;
+    // if read < ODS_HEADER {
+    //     return Err(String::from("Can't read engouth data").into());
+    // }
 
     let object_id = u16::from_be_bytes(ods_buf[0..2].try_into().unwrap());
     let object_version_number = ods_buf[2];
@@ -325,14 +334,14 @@ pub fn read_ods(
     let data_size = data_size - 4; // don't know why for now !!!
 
     //object_data.resize(data_size, 0);
-    //let read_count = file.read(object_data.as_mut_slice())?;
-    // if read_count < object_data.len() {
-    //     return Err(String::from("Can't read all Object Data").into());
-    // }
-    // assert!(ODS_HEADER + data_size == segments_size);
+    assert!(ODS_HEADER + data_size == segments_size);
     // let data_buf = vec![0; data_size];
     // let data_buf = reader.read_exact(&mut data_buf);
-    let data_cursor = reader.get_ref().seek(SeekFrom::Current(0))?;
+    let data_cursor = reader.stream_position()?;
+    //reader.seek_relative(data_size.try_into().unwrap())?;
+    let mut buff = vec![0; data_size];
+    reader.read_exact(&mut buff)?;
+    //reader.consume(data_size);
 
     Ok(ObjectDefinitionSegment {
         object_id,
