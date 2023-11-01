@@ -98,6 +98,13 @@ fn subtitle_to_images(
         threshold,
     );
 
+    let luma_palette = luma_palette(
+        palette,
+        subtitle.palette(),
+        &sub_palette_visibility,
+        threshold,
+    );
+
     let scanlines = inventory_scanlines(subtitle, &binarized_palette);
     let scanline_groups = find_contiguous_scanline_groups(&scanlines);
     if scanline_groups.is_empty() {
@@ -123,11 +130,8 @@ fn subtitle_to_images(
                     } else {
                         let offset = (y0 + (y - border)) * raw_image_width + x0 + (x - border);
                         let sub_palette_ix = subtitle.raw_image()[offset as usize] as usize;
-                        if binarized_palette[sub_palette_ix] {
-                            Luma([0])
-                        } else {
-                            Luma([255])
-                        }
+                        let luma = luma_palette[sub_palette_ix];
+                        Luma([luma])
                     }
                 })
             })
@@ -203,6 +207,50 @@ fn binarize_palette(
                 luminance > threshold
             } else {
                 false
+            }
+        })
+        .collect()
+}
+
+/// Generate a binarized palette where `true` represents a filled text pixel.
+fn luma_palette(
+    palette: &[f32; 16],
+    sub_palette: &[u8; 4],
+    sub_palette_visibility: &[bool; 4],
+    threshold: f32,
+) -> [u8; 4] {
+    // Find the max luminance, so we can scale each luminance value by it.
+    // Reminder that the sub palette is reversed.
+    let mut max_luminance = 0.0;
+    for (&palette_ix, &visible) in sub_palette.iter().rev().zip(sub_palette_visibility) {
+        if visible {
+            let luminance = palette[palette_ix as usize];
+            if luminance > max_luminance {
+                max_luminance = luminance;
+            }
+        }
+    }
+
+    // Empty image?
+    if max_luminance == 0.0 {
+        return [255; 4]; //TODO: return error ?
+    }
+    //Luma([0])
+    sub_palette
+        .into_iter_fixed()
+        .rev()
+        .zip(sub_palette_visibility)
+        .map(|(&palette_ix, &visible)| {
+            if visible {
+                let luminance = palette[palette_ix as usize] / max_luminance;
+                if luminance > threshold {
+                    let luma = 255 - ((luminance * 255.) as u8);
+                    luma
+                } else {
+                    255
+                }
+            } else {
+                255
             }
         })
         .collect()

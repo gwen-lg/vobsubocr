@@ -22,7 +22,7 @@ pub struct Opt {
     ///
     /// Must be between 0.0 and 1.0. Only pixels with luminance above the
     /// threshold will be considered text pixels for OCR.
-    #[clap(short = 't', long, default_value = "0.6")]
+    #[clap(short = 't', long, default_value = "0.5")]
     pub threshold: f32,
 
     /// DPI of subtitle images.
