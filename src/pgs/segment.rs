@@ -82,7 +82,7 @@ impl fmt::Display for SegmentType {
 #[derive(Debug)]
 pub struct SegmentHeader {
     pts: u32,
-    dts: u32,
+    _dts: u32,
     type_code: SegmentTypeCode,
     size: u16,
 }
@@ -131,7 +131,7 @@ pub fn read_header(reader: &mut BufReader<File>) -> Result<SegmentHeader, Error>
 
     Ok(SegmentHeader {
         pts,
-        dts,
+        _dts: dts,
         type_code,
         size,
     })
@@ -188,13 +188,16 @@ pub fn read_pcs(reader: &mut BufReader<File>) -> Result<PresentationCompositionS
 }
 
 #[derive(Debug)]
-pub struct WindowDefinitionSegment {
-    number_of_windows: u8,
+struct WinDef {
     window_id: u8,
     window_horizontal_position: u16,
     window_vertical_position: u16,
     window_width: u16,
     window_height: u16,
+}
+#[derive(Debug)]
+pub struct WindowDefinitionSegment {
+    windows: Vec<WinDef>,
 }
 
 pub fn read_wds(reader: &mut BufReader<File>) -> Result<WindowDefinitionSegment, Error> {
@@ -203,19 +206,24 @@ pub fn read_wds(reader: &mut BufReader<File>) -> Result<WindowDefinitionSegment,
     reader.read_exact(&mut wds_buf)?;
 
     let number_of_windows = wds_buf[0];
-    let window_id = wds_buf[1];
-    let window_horizontal_position = u16::from_be_bytes(wds_buf[2..4].try_into().unwrap());
-    let window_vertical_position = u16::from_be_bytes(wds_buf[4..6].try_into().unwrap());
-    let window_width = u16::from_be_bytes(wds_buf[6..8].try_into().unwrap());
-    let window_height = u16::from_be_bytes(wds_buf[8..10].try_into().unwrap());
-    Ok(WindowDefinitionSegment {
-        number_of_windows,
-        window_id,
-        window_horizontal_position,
-        window_vertical_position,
-        window_width,
-        window_height,
-    })
+    assert!(number_of_windows <= 1);
+    let windows = (00..number_of_windows)
+        .map(|_| {
+            let window_id = wds_buf[1];
+            let window_horizontal_position = u16::from_be_bytes(wds_buf[2..4].try_into().unwrap());
+            let window_vertical_position = u16::from_be_bytes(wds_buf[4..6].try_into().unwrap());
+            let window_width = u16::from_be_bytes(wds_buf[6..8].try_into().unwrap());
+            let window_height = u16::from_be_bytes(wds_buf[8..10].try_into().unwrap());
+            WinDef {
+                window_id,
+                window_horizontal_position,
+                window_vertical_position,
+                window_width,
+                window_height,
+            }
+        })
+        .collect();
+    Ok(WindowDefinitionSegment { windows })
 }
 
 #[derive(Debug)]
