@@ -322,10 +322,7 @@ pub fn read_ods(
 
     //object_data.resize(data_size, 0);
     assert!(ODS_HEADER + data_size == segments_size);
-    // let data_buf = vec![0; data_size];
-    // let data_buf = reader.read_exact(&mut data_buf);
     let data_cursor = reader.stream_position()?;
-    //reader.seek_relative(data_size.try_into().unwrap())?;
     let mut buff = vec![0; data_size];
     reader.read_exact(&mut buff)?;
     //reader.consume(data_size);

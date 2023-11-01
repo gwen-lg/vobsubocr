@@ -59,15 +59,15 @@ fn run(opt: Opt) -> Result<i32> {
             false
         }
     };
-    if is_sup {
+    let vobsubs = if is_sup {
         pgs::run(&opt).context(ParseSupSnafu {
             filename: opt.input.clone(),
-        })?;
-    }
-
-    let vobsubs = preprocessor::preprocess_subtitles(&opt).context(ReadSubtitlesSnafu {
-        filename: opt.input.clone(),
-    })?;
+        })?
+    } else {
+        preprocessor::preprocess_subtitles(&opt).context(ReadSubtitlesSnafu {
+            filename: opt.input.clone(),
+        })?
+    };
 
     // Dump images if requested.
     if opt.dump {

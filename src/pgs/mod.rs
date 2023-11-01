@@ -9,10 +9,12 @@ use std::{
     io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
     ops::Add,
 };
+use subparse::timetypes::{TimePoint, TimeSpan};
 
 use crate::{
     opt::Opt,
     pgs::segment::{read_ods, read_pcs, read_pds, read_wds, SegmentType},
+    preprocessor::PreprocessedVobSubtitle,
 };
 
 use self::segment::read_header;
@@ -50,13 +52,14 @@ impl From<String> for Error {
 
 pub type Result<T, E = crate::pgs::Error> = std::result::Result<T, E>;
 
-pub fn run(opt: &Opt) -> Result<()> {
+pub fn run(opt: &Opt) -> Result<Vec<PreprocessedVobSubtitle>> {
     let file = File::open(opt.input.clone())?;
     const BUFFER_CAPACITY: usize = 1024 * 1024; // 1M
     let mut reader = BufReader::with_capacity(BUFFER_CAPACITY, file);
     //  _check_file_read(&mut reader);
     let file_size = reader.get_ref().metadata().unwrap().len();
 
+    let mut vobsub = Vec::with_capacity(1000);
     let mut segments = Vec::with_capacity(1000);
     let mut segment_count = 0;
     let mut display_set_count = 0;
@@ -88,6 +91,16 @@ pub fn run(opt: &Opt) -> Result<()> {
             }
             SegmentType::End => {
                 display_set_count = display_set_count.add(1);
+                let time = segment_header.presentation_time();
+                let time_span = TimeSpan {
+                    start: TimePoint::from_msecs(time as i64),
+                    end: TimePoint::from_msecs(time as i64 + 1000), //HACK
+                };
+                vobsub.push(PreprocessedVobSubtitle {
+                    time_span,
+                    force: false,       //HACK
+                    images: Vec::new(), //Hack
+                })
                 //println!("END");
             }
         }
@@ -100,7 +113,8 @@ pub fn run(opt: &Opt) -> Result<()> {
         "segment count : {}, display set count : {display_set_count}",
         segments.len()
     );
-    Ok(())
+
+    Ok(vobsub)
 }
 
 fn _check_file_read(reader: &mut BufReader<File>) {
