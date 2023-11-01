@@ -2,7 +2,7 @@ mod segment;
 mod u24;
 
 use core::fmt;
-use snafu::{ResultExt, Snafu};
+use snafu::Snafu;
 use std::{
     convert::{TryFrom, TryInto},
     fs::File,
@@ -17,7 +17,7 @@ use crate::{
     preprocessor::PreprocessedVobSubtitle,
 };
 
-use self::segment::read_header;
+use self::segment::{read_header, SegmentHeader, SegmentTypeCode};
 
 // https://blog.thescorpius.com/index.php/2017/07/15/presentation-graphic-stream-sup-files-bluray-subtitle-format/
 //TODO: extract info avoir partition with error, and faile operation with collect when error in iterator
@@ -37,6 +37,9 @@ pub enum Error {
 
     #[snafu(display("EndOfFile found"))]
     EndOfFile,
+
+    #[snafu(display("Invalid Segment Code"))]
+    InvalidSegmentCode,
 }
 
 impl From<io::Error> for Error {
@@ -61,71 +64,109 @@ pub fn run(opt: &Opt) -> Result<Vec<PreprocessedVobSubtitle>> {
 
     let mut segments = Vec::with_capacity(1000);
     let mut segment_count = 0;
-    let mut display_set_count = 0;
+    //let mut display_set_count = 0;
     // Parse files
     while {
         let stream_pos = reader.stream_position().unwrap();
         stream_pos < file_size
-    }
-    // .context(ParseHeaderSegmentSnafu)
-    {
-        let segment_header = read_header(&mut reader)?;
-        //println!("Ds[{display_set_count}] - Seg [{segment_count}]: {segment_header}");
-        match segment_header.sg_type() {
-            SegmentType::Pcs => {
-                let pcs = read_pcs(&mut reader)?;
-                // println!("PCS: {pcs:?}");
-            }
-            SegmentType::Wds => {
-                let wds = read_wds(&mut reader)?;
-                //println!("WDS: {wds:?}");
-            }
-            SegmentType::Pds => {
-                let pds = read_pds(&mut reader, segment_header.size().into())?;
-                //println!("PDS: {pds:?}");
-            }
-            SegmentType::Ods => {
-                let ods = read_ods(&mut reader, segment_header.size().into())?;
-                //println!("ODS: {ods:?}");
-            }
-            SegmentType::End => {
-                display_set_count = display_set_count.add(1);
-                //println!("END");
-            }
-        }
-        segments.push(segment_header);
+    } {
+        let segment = read_segment(&mut reader)?;
+        // .context(ParseSegmentSnafu)
+        segments.push(segment);
         segment_count = segment_count.add(1);
     }
 
     let mut vobsub = Vec::with_capacity(1000);
-    let mut start_time: Option<TimePoint> = None;
-    segments.iter().for_each(|segment_header| {
-        if segment_header.sg_type() == SegmentType::Pcs {
-            let time = segment_header.presentation_time();
-            let time_point = TimePoint::from_msecs(time as i64);
-            if let Some(start_time) = start_time.take() {
-                let time_span = TimeSpan {
-                    start: start_time,
-                    end: time_point,
-                };
-                //println!("New subtitle : {time_span:?}");
-                vobsub.push(PreprocessedVobSubtitle {
-                    time_span,
-                    force: false,       //HACK
-                    images: Vec::new(), //Hack
-                });
-            } else {
-                start_time = Some(time_point);
+    {
+        let mut last_pcs = None;
+        let mut last_wds = None;
+        let mut last_pds = None;
+        let mut last_ods = None;
+
+        let mut start_time: Option<TimePoint> = None;
+        segments.iter().for_each(|segment| {
+            match &segment.content {
+                SegmentType::Pcs(pcs) => {
+                    assert!(last_pcs.is_none());
+                    last_pcs = Some(pcs);
+                }
+                SegmentType::Wds(wds) => {
+                    assert!(last_wds.is_none());
+                    last_wds = Some(wds);
+                }
+                SegmentType::Pds(pds) => {
+                    assert!(last_pds.is_none());
+                    last_pds = Some(pds);
+                }
+                SegmentType::Ods(ods) => {
+                    assert!(last_ods.is_none());
+                    last_ods = Some(ods);
+                }
+
+                SegmentType::End => {
+                    let time = segment.header.presentation_time();
+                    let time_point = TimePoint::from_msecs(time as i64);
+                    if let Some(start_time) = start_time.take() {
+                        vobsub.push(PreprocessedVobSubtitle {
+                            time_span: TimeSpan {
+                                start: start_time,
+                                end: time_point,
+                            },
+                            force: false,       //HACK
+                            images: Vec::new(), //Hack
+                        });
+                    } else {
+                        start_time = Some(time_point);
+                    }
+
+                    last_pcs = None;
+                    last_wds = None;
+                    last_pds = None;
+                    last_ods = None;
+                }
             }
-        }
-    });
+        });
+    }
     //
-    println!(
-        "segment count : {}, display set count : {display_set_count}",
-        segments.len()
-    );
+    // println!(
+    //     "segment count : {}, display set count : {display_set_count}",
+    //     segments.len()
+    // );
 
     Ok(vobsub)
+}
+
+struct Segment {
+    header: SegmentHeader,
+    content: SegmentType,
+}
+fn read_segment(reader: &mut BufReader<File>) -> Result<Segment, Error> {
+    let header = read_header(reader)?;
+    //println!("Ds[{display_set_count}] - Seg [{segment_count}]: {segment_header}");
+    let content = match header.type_code() {
+        SegmentTypeCode::PDS => {
+            let pds = read_pds(reader, header.size().into())?;
+            SegmentType::Pds(pds)
+        }
+        SegmentTypeCode::ODS => {
+            let ods = read_ods(reader, header.size().into())?;
+            SegmentType::Ods(ods)
+        }
+        SegmentTypeCode::PCS => {
+            let pcs = read_pcs(reader)?;
+            SegmentType::Pcs(pcs)
+        }
+        SegmentTypeCode::WDS => {
+            let wds = read_wds(reader)?;
+            SegmentType::Wds(wds)
+        }
+        SegmentTypeCode::END => {
+            SegmentType::End
+            //display_set_count = display_set_count.add(1);
+        }
+        _ => return Err(Error::ParseHeaderSegment), //TODO:
+    };
+    Ok(Segment { header, content })
 }
 
 fn _check_file_read(reader: &mut BufReader<File>) {

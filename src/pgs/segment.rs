@@ -2,7 +2,7 @@ use std::{
     convert::{TryFrom, TryInto},
     fmt::{self, Debug},
     fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{BufReader, Read, Seek},
 };
 
 use super::{CompositionState, Error, WindowInformationObject};
@@ -10,14 +10,55 @@ use crate::pgs::{read_window_info, u24::u24};
 
 const MAGIC_NUMBER: [u8; 2] = [0x50, 0x47];
 
-#[repr(u8)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SegmentTypeCode(u8);
+impl From<u8> for SegmentTypeCode {
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
+}
+impl fmt::Debug for SegmentTypeCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let friendly = match *self {
+            Self::PDS => "PDS",
+            Self::ODS => "ODS",
+            Self::PCS => "PCS",
+            Self::WDS => "WDS",
+            Self::END => "END",
+            _ => "<Invalid>",
+        };
+        write!(f, "{}-{}", self.0, friendly)
+    }
+}
+impl fmt::Display for SegmentTypeCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let friendly = match *self {
+            Self::PDS => "PDS",
+            Self::ODS => "ODS",
+            Self::PCS => "PCS",
+            Self::WDS => "WDS",
+            Self::END => "END",
+            _ => "<Invalid>",
+        };
+        write!(f, "{}", friendly)
+    }
+}
+
+impl SegmentTypeCode {
+    pub(crate) const PDS: SegmentTypeCode = SegmentTypeCode(0x14);
+    pub(crate) const ODS: SegmentTypeCode = SegmentTypeCode(0x15);
+    pub(crate) const PCS: SegmentTypeCode = SegmentTypeCode(0x16);
+    pub(crate) const WDS: SegmentTypeCode = SegmentTypeCode(0x17);
+    pub(crate) const END: SegmentTypeCode = SegmentTypeCode(0x80);
+}
+
+#[derive(Debug)]
 pub enum SegmentType {
-    Pds = 0x14,
-    Ods = 0x15,
-    Pcs = 0x16,
-    Wds = 0x17,
-    End = 0x80,
+    Pds(PaletteDefinitionSegment),
+    Ods(ObjectDefinitionSegment),
+    Pcs(PresentationCompositionSegment),
+    Wds(WindowDefinitionSegment),
+    End,
 }
 impl SegmentType {
     fn _value(&self) -> u8 {
@@ -25,27 +66,13 @@ impl SegmentType {
     }
 }
 
-//TODO: get a better method ?
-impl TryFrom<u8> for SegmentType {
-    type Error = String;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x14 => Ok(SegmentType::Pds),
-            0x15 => Ok(SegmentType::Ods),
-            0x16 => Ok(SegmentType::Pcs),
-            0x17 => Ok(SegmentType::Wds),
-            0x80 => Ok(SegmentType::End),
-            _ => Err("Invalid segment type".into()),
-        }
-    }
-}
 impl fmt::Display for SegmentType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let info = match self {
-            SegmentType::Pds => "Pds",
-            SegmentType::Ods => "Ods",
-            SegmentType::Pcs => "Pcs",
-            SegmentType::Wds => "Wds",
+            SegmentType::Pds(_) => "Pds",
+            SegmentType::Ods(_) => "Ods",
+            SegmentType::Pcs(_) => "Pcs",
+            SegmentType::Wds(_) => "Wds",
             SegmentType::End => "End",
         };
         write!(f, "{info}")
@@ -56,7 +83,7 @@ impl fmt::Display for SegmentType {
 pub struct SegmentHeader {
     pts: u32,
     dts: u32,
-    seg_type: SegmentType,
+    type_code: SegmentTypeCode,
     size: u16,
 }
 impl SegmentHeader {
@@ -64,17 +91,18 @@ impl SegmentHeader {
         let time_ms = self.pts / 90;
         time_ms
     }
-    pub fn sg_type(&self) -> SegmentType {
-        self.seg_type
+    pub fn type_code(&self) -> SegmentTypeCode {
+        self.type_code
     }
     pub fn size(&self) -> u16 {
         self.size
     }
 }
+
 impl fmt::Display for SegmentHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let presentation_time = self.presentation_time();
-        let seg_type = self.seg_type;
+        let seg_type = self.type_code;
         let size = self.size;
         // dts is ignored as always 0 ?????
         write!(
@@ -86,14 +114,7 @@ impl fmt::Display for SegmentHeader {
 pub fn read_header(reader: &mut BufReader<File>) -> Result<SegmentHeader, Error> {
     const HEADER_LEN: usize = 2 + 4 + 4 + 1 + 2;
     let mut header_buf = [0; HEADER_LEN];
-    match reader.read_exact(&mut header_buf) {
-        Ok(()) => (),
-        Err(err) => {
-            let stream_pos = reader.stream_position().unwrap();
-            let msg = format!("Error at {stream_pos} : {err}");
-            return Err(msg.into());
-        }
-    };
+    reader.read_exact(&mut header_buf)?;
 
     //buffer = buf_next;
     if header_buf[0..2] != MAGIC_NUMBER {
@@ -105,13 +126,13 @@ pub fn read_header(reader: &mut BufReader<File>) -> Result<SegmentHeader, Error>
     }
     let pts = u32::from_be_bytes(header_buf[2..6].try_into().unwrap());
     let dts = u32::from_be_bytes(header_buf[6..10].try_into().unwrap());
-    let seg_type = SegmentType::try_from(header_buf[10])?;
+    let type_code = SegmentTypeCode::from(header_buf[10]);
     let size = u16::from_be_bytes(header_buf[11..13].try_into().unwrap());
 
     Ok(SegmentHeader {
         pts,
         dts,
-        seg_type,
+        type_code,
         size,
     })
 }
