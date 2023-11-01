@@ -6,7 +6,7 @@ use std::{
 };
 
 use super::{CompositionState, Error, WindowInformationObject};
-use crate::pgs::{read_window_info, u24::u24};
+use crate::pgs::{read_window_info, rle::decode_rle, u24::u24};
 
 const MAGIC_NUMBER: [u8; 2] = [0x50, 0x47];
 
@@ -354,6 +354,7 @@ pub fn read_ods(
     let data_cursor = reader.stream_position()?;
     let mut buff = vec![0; data_size];
     reader.read_exact(&mut buff)?;
+    let _image = decode_rle(buff);
     //reader.consume(data_size);
 
     Ok(ObjectDefinitionSegment {

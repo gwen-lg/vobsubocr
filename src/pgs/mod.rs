@@ -1,3 +1,4 @@
+mod rle;
 mod segment;
 mod u24;
 
@@ -106,6 +107,7 @@ pub fn run(opt: &Opt) -> Result<Vec<PreprocessedVobSubtitle>> {
                 SegmentType::End => {
                     let time = segment.header.presentation_time();
                     let time_point = TimePoint::from_msecs(time as i64);
+                    //TODO: get/compute image
                     if let Some(start_time) = start_time.take() {
                         vobsub.push(PreprocessedVobSubtitle {
                             time_span: TimeSpan {
