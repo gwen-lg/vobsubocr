@@ -59,7 +59,6 @@ pub fn run(opt: &Opt) -> Result<Vec<PreprocessedVobSubtitle>> {
     //  _check_file_read(&mut reader);
     let file_size = reader.get_ref().metadata().unwrap().len();
 
-    let mut vobsub = Vec::with_capacity(1000);
     let mut segments = Vec::with_capacity(1000);
     let mut segment_count = 0;
     let mut display_set_count = 0;
@@ -91,16 +90,6 @@ pub fn run(opt: &Opt) -> Result<Vec<PreprocessedVobSubtitle>> {
             }
             SegmentType::End => {
                 display_set_count = display_set_count.add(1);
-                let time = segment_header.presentation_time();
-                let time_span = TimeSpan {
-                    start: TimePoint::from_msecs(time as i64),
-                    end: TimePoint::from_msecs(time as i64 + 1000), //HACK
-                };
-                vobsub.push(PreprocessedVobSubtitle {
-                    time_span,
-                    force: false,       //HACK
-                    images: Vec::new(), //Hack
-                })
                 //println!("END");
             }
         }
@@ -108,6 +97,28 @@ pub fn run(opt: &Opt) -> Result<Vec<PreprocessedVobSubtitle>> {
         segment_count = segment_count.add(1);
     }
 
+    let mut vobsub = Vec::with_capacity(1000);
+    let mut start_time: Option<TimePoint> = None;
+    segments.iter().for_each(|segment_header| {
+        if segment_header.sg_type() == SegmentType::Pcs {
+            let time = segment_header.presentation_time();
+            let time_point = TimePoint::from_msecs(time as i64);
+            if let Some(start_time) = start_time.take() {
+                let time_span = TimeSpan {
+                    start: start_time,
+                    end: time_point,
+                };
+                //println!("New subtitle : {time_span:?}");
+                vobsub.push(PreprocessedVobSubtitle {
+                    time_span,
+                    force: false,       //HACK
+                    images: Vec::new(), //Hack
+                });
+            } else {
+                start_time = Some(time_point);
+            }
+        }
+    });
     //
     println!(
         "segment count : {}, display set count : {display_set_count}",

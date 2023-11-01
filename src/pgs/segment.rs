@@ -11,7 +11,7 @@ use crate::pgs::{read_window_info, u24::u24};
 const MAGIC_NUMBER: [u8; 2] = [0x50, 0x47];
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SegmentType {
     Pds = 0x14,
     Ods = 0x15,
