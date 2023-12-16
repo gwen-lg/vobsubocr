@@ -14,13 +14,14 @@ use std::{
     path::PathBuf,
 };
 use subparse::{timetypes::TimeSpan, SrtFile, SubtitleFile};
+use subtitles_utils::AnyhowError;
 
 #[derive(Debug, Snafu)]
 enum Error {
     #[snafu(display("Could not parse VOB subtitles from {}: {}", filename.display(), source))]
     ReadSubtitles {
         filename: PathBuf,
-        source: vobsub::Error,
+        source: AnyhowError,
     },
 
     #[snafu(display("Could not perform OCR on subtitles: {}", source))]

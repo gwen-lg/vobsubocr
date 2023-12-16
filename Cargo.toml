@@ -23,4 +23,5 @@ scoped-tls-hkt = "0.1.4"
 simple_logger = { version = "4.3.0", features = ["colors"] }
 snafu = "0.7"
 subparse = "0.7.0"
-vobsub = "0.2.3"
+#vobsub = { version = "0.2.3", path = "../subtitles-util" }
+subtitles-utils = { path = "../subtitles-utils" }
