@@ -18,7 +18,7 @@ use subtitles_utils::AnyhowError;
 
 #[derive(Debug, Snafu)]
 enum Error {
-    #[snafu(display("Could not parse VOB subtitles from {}: {}", filename.display(), source))]
+    #[snafu(display("Could not parse VOB subtitles from {}: {:?}", filename.display(), source))]
     ReadSubtitles {
         filename: PathBuf,
         source: AnyhowError,
