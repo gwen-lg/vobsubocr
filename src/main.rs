@@ -8,6 +8,7 @@ use crate::opt::Opt;
 use anyhow::Context;
 use clap::Parser;
 use log::{warn, LevelFilter};
+use preprocessor::ImagePreprocessOpt;
 use std::{
     fs::File,
     io::{self, Write},
@@ -46,7 +47,8 @@ enum Error {
 
 fn run(opt: &Opt) -> anyhow::Result<()> {
     let idx = vobsub::Index::open(&opt.input)?;
-    let vobsubs = preprocessor::preprocess_subtitles(idx, opt)?;
+    let image_opt = ImagePreprocessOpt::new(opt.threshold, opt.border);
+    let vobsubs = preprocessor::preprocess_subtitles(idx, image_opt)?;
 
     // Dump images if requested.
     if opt.dump {
