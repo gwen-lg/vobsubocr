@@ -22,7 +22,7 @@ log = "0.4"
 rayon = "1.8"
 scoped-tls-hkt = "0.1.4"
 simple_logger = { version = "4.3.0", features = ["colors"] }
-subparse = "0.7.0"
-#vobsub = { version = "0.2.3", path = "../subtitles-util" }
+subparse = { version = "0.7.0", path = "../subparse" }
+#vobsub = { version = "0.2.3", path = "../subtitles-utils" }
 subtitles-utils = { path = "../subtitles-utils" }
 thiserror = "1.0"
