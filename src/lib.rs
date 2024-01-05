@@ -50,14 +50,7 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
 
     // Dump images if requested.
     if opt.dump {
-        for (i, sub) in vobsubs.iter().enumerate() {
-            for (j, image) in sub.images.iter().enumerate() {
-                let filename = format!("{:06}-{:02}.png", i, j);
-                image
-                    .save(&filename)
-                    .map_err(|source| Error::DumpImage { filename, source })?;
-            }
-        }
+        dump_images(&vobsubs)?;
     }
 
     let subtitles = ocr::process(vobsubs, opt)?;
@@ -92,6 +85,18 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
     } else {
         Ok(())
     }
+}
+
+fn dump_images(vobsubs: &[preprocessor::PreprocessedVobSubtitle]) -> Result<(), Error> {
+    for (i, sub) in vobsubs.iter().enumerate() {
+        for (j, image) in sub.images.iter().enumerate() {
+            let filename = format!("{:06}-{:02}.png", i, j);
+            image
+                .save(&filename)
+                .map_err(|source| Error::DumpImage { filename, source })?;
+        }
+    }
+    Ok(())
 }
 
 fn write_srt(path: &Option<PathBuf>, subtitle_data: &[u8]) -> Result<(), Error> {
