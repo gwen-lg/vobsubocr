@@ -4,10 +4,11 @@ mod ocr;
 mod opt;
 mod preprocessor;
 
-pub use crate::ocr::OcrOpt;
+pub use crate::ocr::{process as ocr_process, OcrOpt};
 pub use crate::opt::Opt;
+pub use crate::preprocessor::{preprocess_subtitles, ImagePreprocessOpt};
+
 use log::warn;
-use preprocessor::ImagePreprocessOpt;
 use std::{
     fs::File,
     io::{self, Write},
@@ -18,7 +19,7 @@ use subtitles_utils::{vobsub, SubError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-enum Error {
+pub enum Error {
     #[error("Could not parse VOB subtitles.")]
     ReadSubtitles(#[from] SubError),
 
@@ -95,7 +96,7 @@ fn dump_image(
 }
 
 /// Log errors and remove bad results.
-fn check_subtitles(
+pub fn check_subtitles(
     subtitles: Vec<Result<(TimeSpan, String), ocr::Error>>,
 ) -> Result<Vec<(TimeSpan, String)>, Error> {
     let mut ocr_error_count = 0;
