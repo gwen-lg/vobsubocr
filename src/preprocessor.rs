@@ -3,6 +3,7 @@ use std::{
     ops::Range,
 };
 
+pub use crate::memory_stats::MEM_STATS;
 use image::{GrayImage, ImageBuffer, Luma};
 use iter_fixed::IntoIteratorFixed;
 use log::warn;
@@ -45,7 +46,9 @@ pub fn preprocess_subtitles(
             }
         })
         .collect();
+    MEM_STATS.print_mem_stats();
     let palette = rgb_palette_to_luminance(idx.palette());
+    MEM_STATS.print_mem_stats();
     let result = subtitles
         .par_iter()
         .filter_map(|sub| {

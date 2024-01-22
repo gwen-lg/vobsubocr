@@ -1,9 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+mod memory_stats;
 mod ocr;
 mod opt;
 mod preprocessor;
 
+pub use crate::memory_stats::{MemStats, MemTracker, MEM_STATS};
 pub use crate::ocr::{process as ocr_process, OcrOpt};
 pub use crate::opt::Opt;
 pub use crate::preprocessor::{preprocess_subtitles, ImagePreprocessOpt};
@@ -47,8 +49,10 @@ pub enum Error {
 
 pub fn run(opt: &Opt) -> anyhow::Result<()> {
     let idx = vobsub::Index::open(&opt.input)?;
+    MEM_STATS.print_mem_stats();
     let image_opt = ImagePreprocessOpt::new(opt.threshold, opt.border);
     let vobsubs = preprocessor::preprocess_subtitles(idx, image_opt)?;
+    MEM_STATS.print_mem_stats();
 
     // Dump images if requested.
     if opt.dump {
@@ -57,13 +61,16 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
 
     let ocr_opt = OcrOpt::new(&opt.tessdata_dir, opt.lang.as_str(), &opt.config, opt.dpi);
     let subtitles = ocr::process(vobsubs, &ocr_opt)?;
+    MEM_STATS.print_mem_stats();
     let subtitles = check_subtitles(subtitles)?;
 
+    MEM_STATS.print_mem_stats();
     // Create subtitle file.
     let subtitles =
         SubtitleFile::SubRipFile(SrtFile::create(subtitles).map_err(|e| Error::GenerateSrt {
             message: e.to_string(),
         })?);
+    MEM_STATS.print_mem_stats();
     let subtitle_data = subtitles.to_data().map_err(|e| Error::GenerateSrt {
         message: e.to_string(),
     })?;
