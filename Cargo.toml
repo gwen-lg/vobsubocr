@@ -26,3 +26,6 @@ subparse = { version = "0.7.0", path = "../subparse" }
 #vobsub = { version = "0.2.3", path = "../subtitles-utils" }
 subtitles-utils = { path = "../subtitles-utils" }
 thiserror = "1.0"
+
+[profile.release]
+lto = "thin"
