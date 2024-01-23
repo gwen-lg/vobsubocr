@@ -718,6 +718,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d135ede8821cf6376eb7a64148901e1690b788c11ae94dc297ae917dbc91dc0e"
 dependencies = [
  "profiling-procmacros",
+ "puffin",
 ]
 
 [[package]]
@@ -728,6 +729,18 @@ checksum = "4b322d7d65c1ab449be3c890fcbd0db6e1092d0dd05d79dba2dd28032cebeb05"
 dependencies = [
  "quote",
  "syn 2.0.48",
+]
+
+[[package]]
+name = "puffin"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02330f795caafc2007510f742624c10aa813b8c3097c77ff344b1b86eb6be846"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "cfg-if",
+ "once_cell",
 ]
 
 [[package]]
@@ -1123,6 +1136,7 @@ dependencies = [
  "iter_fixed",
  "leptess",
  "log",
+ "profiling",
  "rayon",
  "scoped-tls-hkt",
  "simple_logger",
