@@ -49,7 +49,10 @@ pub enum Error {
 
 #[profiling::function]
 pub fn run(opt: &Opt) -> anyhow::Result<()> {
-    let idx = vobsub::Index::open(&opt.input)?;
+    let idx = {
+        profiling::scope!("Open idx");
+        vobsub::Index::open(&opt.input)?
+    };
     MEM_STATS.print_mem_stats();
     let image_opt = ImagePreprocessOpt::new(opt.threshold, opt.border);
     let vobsubs = preprocessor::preprocess_subtitles(idx, image_opt)?;
@@ -57,6 +60,7 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
 
     // Dump images if requested.
     if opt.dump {
+        profiling::scope!("image_dump");
         dump_images(&vobsubs)?;
     }
 
@@ -66,15 +70,20 @@ pub fn run(opt: &Opt) -> anyhow::Result<()> {
     let subtitles = check_subtitles(subtitles)?;
 
     MEM_STATS.print_mem_stats();
+
     // Create subtitle file.
-    let subtitles =
-        SubtitleFile::SubRipFile(SrtFile::create(subtitles).map_err(|e| Error::GenerateSrt {
-            message: e.to_string(),
+    let subtitle_data = {
+        profiling::scope!("Create subtitle file");
+        let subtitles = SubtitleFile::SubRipFile(SrtFile::create(subtitles).map_err(|e| {
+            Error::GenerateSrt {
+                message: e.to_string(),
+            }
         })?);
-    MEM_STATS.print_mem_stats();
-    let subtitle_data = subtitles.to_data().map_err(|e| Error::GenerateSrt {
-        message: e.to_string(),
-    })?;
+        MEM_STATS.print_mem_stats();
+        subtitles.to_data().map_err(|e| Error::GenerateSrt {
+            message: e.to_string(),
+        })?
+    };
 
     write_srt(&opt.output, &subtitle_data)?;
 
