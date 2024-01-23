@@ -28,6 +28,7 @@ pub static MEM_STATS: MemStats = MemStats {
 };
 
 impl MemStats {
+    #[profiling::function]
     pub fn print_mem_stats(&self) {
         let total_alloc_count = MEM_STATS.total_alloc_count.load(Ordering::Relaxed);
         let max_alloc_count = MEM_STATS.max_alloc_count.load(Ordering::Relaxed);

@@ -64,6 +64,7 @@ pub enum Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+#[profiling::function]
 pub fn process(
     vobsubs: Vec<PreprocessedVobSubtitle>,
     opt: &OcrOpt,
@@ -84,6 +85,7 @@ pub fn process(
                             .into_iter()
                             .map(|image| {
                                 TESSERACT.with(|maybe_tesseract| {
+                                    profiling::scope!("tesseract_ocr");
                                     let tesseract = match maybe_tesseract {
                                         Some(tesseract) => tesseract,
                                         None => {
@@ -114,11 +116,14 @@ struct TesseractWrapper {
 }
 
 impl TesseractWrapper {
+    //#[profiling::function]
     fn new(
         datapath: Option<&str>,
         language: impl AsRef<str>,
         config: &[(Variable, String)],
     ) -> Result<Self> {
+        profiling::scope!("TesseractWrapper new");
+
         let mut leptess = LepTess::new(datapath, language.as_ref())?;
         // Disable learning by default, though a user could re-enable this
         // option with `-c`. We turn this off since we are are multithreading,
@@ -135,6 +140,7 @@ impl TesseractWrapper {
     }
 
     /// Set the tesseract image to the given image's contents.
+    #[profiling::function]
     fn set_image(&mut self, image: GrayImage, dpi: i32) -> Result<()> {
         let mut bytes: Cursor<Vec<u8>> = Cursor::new(Vec::new());
         DynamicImage::ImageLuma8(image).write_to(
@@ -147,6 +153,7 @@ impl TesseractWrapper {
     }
 
     /// Get text.
+    #[profiling::function]
     fn get_text(&mut self) -> Result<String> {
         Ok(self.leptess.get_utf8_text()?)
     }
