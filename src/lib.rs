@@ -126,7 +126,7 @@ pub fn check_subtitles(
         .collect();
 
     if ocr_error_count > 0 {
-        Err(Error::OcrFails(ocr_error_count).into())
+        Err(Error::OcrFails(ocr_error_count))
     } else {
         Ok(subtitles)
     }
