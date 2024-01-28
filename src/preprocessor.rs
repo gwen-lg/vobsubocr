@@ -8,8 +8,10 @@ use image::{GrayImage, ImageBuffer, Luma};
 use iter_fixed::IntoIteratorFixed;
 use log::warn;
 use rayon::prelude::*;
-use subparse::timetypes::{TimePoint, TimeSpan};
-use subtitles_utils::{vobsub, SubError};
+use subtitles_utils::{
+    time::{TimePoint, TimeSpan},
+    vobsub, SubError,
+};
 
 pub struct ImagePreprocessOpt {
     threshold: f32,
