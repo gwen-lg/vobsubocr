@@ -12,11 +12,7 @@ pub use crate::preprocessor::{preprocess_subtitles, ImagePreprocessOpt};
 
 use log::warn;
 use std::io::BufWriter;
-use std::{
-    fs::File,
-    io::{self, Write},
-    path::PathBuf,
-};
+use std::{fs::File, io, path::PathBuf};
 pub use subtitles_utils::time::TimeSpan;
 use subtitles_utils::{srt, vobsub, SubError};
 use thiserror::Error;
