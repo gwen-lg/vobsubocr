@@ -17,7 +17,6 @@ use std::{
     io::{self, Write},
     path::PathBuf,
 };
-use subparse::{SrtFile, SubtitleFile};
 pub use subtitles_utils::time::TimeSpan;
 use subtitles_utils::{srt, vobsub, SubError};
 use thiserror::Error;
