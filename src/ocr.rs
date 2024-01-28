@@ -92,7 +92,7 @@ pub fn process(
                                             let tesseract = TesseractWrapper::new(
                                                 opt.tessdata_dir.as_deref(),
                                                 opt.lang,
-                                                &opt.config,
+                                                opt.config,
                                             )?;
                                             maybe_tesseract.insert(tesseract)
                                         }
